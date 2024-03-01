@@ -1,0 +1,8 @@
+# syntax=docker/dockerfile:1
+FROM golang:1-alpine
+
+RUN apk add --no-cache \
+    build-base git \
+    python3-dev py3-pip libffi-dev
+
+COPY test/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

@@ -1,0 +1,109 @@
+version: "3"
+services:
+  # The `pebble` and `challtestsrv` services behave like the release container
+  # images but using a debug build in the development environment.
+  pebble:
+    build:
+      context: .
+      dockerfile: Dockerfile.devcontainer
+    command: pebble
+    entrypoint: /usr/local/bin/docker-entrypoint.sh
+    environment:
+      - PEBBLE_WFE_NONCEREJECT=0 # disable nonce rejection for debugging
+    volumes:
+      - $PWD:/go/src/github.com/letsencrypt/pebble
+      - $PWD/test:/test
+    working_dir: /go/src/github.com/letsencrypt/pebble
+  challtestsrv:
+    build:
+      context: .
+      dockerfile: Dockerfile.devcontainer
+    command: pebble-challtestsrv
+    entrypoint: /usr/local/bin/docker-entrypoint.sh
+    volumes:
+      - $PWD:/go/src/github.com/letsencrypt/pebble
+      - $PWD/test:/test
+    working_dir: /go/src/github.com/letsencrypt/pebble
+
+  # The `test-standalone` service runs the standalone unit tests.
+  test-standalone:
+    build:
+      context: .
+      dockerfile: Dockerfile.devcontainer
+    command: ./test.sh
+    volumes:
+      - $PWD:/go/src/github.com/letsencrypt/pebble
+    working_dir: /go/src/github.com/letsencrypt/pebble
+
+  # The `test-integration-load-generator` service runs the load-generator
+  # integration tests from Boulder.
+  test-integration-load-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.devcontainer
+    command: |
+      /bin/sh -c '
+        git clone https://github.com/letsencrypt/boulder.git . &&
+        go run ./test/load-generator -config /test/config/load-generator-config-docker.json
+      '
+    depends_on:
+      - pebble
+      - challtestsrv
+    environment:
+      - ACME_DIRECTORY=https://pebble:14000/dir
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.4
+    volumes:
+      - $PWD/test:/test
+
+  # The `test-integration-chisel` service runs the chisel integration tests.
+  test-integration-chisel:
+    build:
+      context: .
+      dockerfile: Dockerfile.devcontainer
+    command: |
+      /bin/sh -c '
+        python -m venv /tmp/venv &&
+        . /tmp/venv/bin/activate &&
+        pip install -r /test/requirements.txt &&
+        export REQUESTS_CA_BUNDLE=/test/certs/pebble.minica.pem &&
+        python /test/chisel2.py example.letsencrypt.org elpmaxe.letsencrypt.org
+      '
+    depends_on:
+      - pebble
+      - challtestsrv
+    environment:
+      - DIRECTORY=https://pebble:14000/dir
+      - LOGLEVEL=10
+      - SET_TXT=http://challtestsrv:8055/set-txt
+      - CLEAR_TXT=http://challtestsrv:8055/clear-txt
+    networks:
+      acmenet:
+        aliases:
+          - example.letsencrypt.org
+          - elpmaxe.letsencrypt.org
+        ipv4_address: 10.30.50.5
+    volumes:
+      - $PWD/test:/test
+
+  # The `test-integration-eggsampler` service runs the eggsampler/acme integration tests.
+  test-integration-eggsampler:
+    build:
+      context: .
+      dockerfile: Dockerfile.devcontainer
+    command: |
+      /bin/sh -c '
+        git clone https://github.com/eggsampler/acme.git .
+        make test
+      '
+    depends_on:
+      - pebble
+      - challtestsrv
+    environment:
+      - ACME_DIRECTORY=https://pebble:14000/dir
+      - CLIENT=pebble
+    working_dir: /go/src/github.com/eggsampler/acme
+    networks:
+      acmenet:
+        ipv4_address: 10.30.50.6
